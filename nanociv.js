@@ -25,6 +25,47 @@ var UNIT_TYPE_CITY = 0;
 var UNIT_TYPE_SETTLER = 1;
 var UNIT_TYPE_WARRIOR = 2;
 
+var CONTROL_PANEL_HEIGHT = 100;
+var BUTTON_X = 90;
+var BUTTON_Y = 45;
+var BUTTON_WIDTH = 80;
+var BUTTON_HEIGHT = 35;
+var BUTTON_PADDING = 10;
+
+var CP_STATE_NONE = 0;
+var CP_STATE_CITY = 1;
+var CP_STATE_SETTLER = 2;
+var CP_STATE_WARRIOR = 3;
+var CP_STATE_MOVE = 4;
+var CP_STATE_ATTACK = 5;
+
+var CP_ACTION_SETTLER = 0;
+var CP_ACTION_WARRIOR = 1;
+var CP_ACTION_DEFEND = 2;
+var CP_ACTION_MOVE = 3;
+var CP_ACTION_BUILD = 4;
+var CP_ACTION_ATTACK = 5;
+var CP_ACTION_CANCEL = 6;
+
+var BUTTON_TEXT = [
+    'Settler',
+    'Warrior',
+    'Defend',
+    'Move',
+    'Build',
+    'Attack',
+    'Cancel'
+];
+
+var CP_BUTTONS = [
+    /* CP_STATE_NONE */    [],
+    /* CP_STATE_CITY */    [CP_ACTION_SETTLER, CP_ACTION_WARRIOR, CP_ACTION_DEFEND],
+    /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_DEFEND],
+    /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_DEFEND],
+    /* CP_STATE_MOVE */    [CP_ACTION_CANCEL],
+    /* CP_STATE_ATTACK */  [CP_ACTION_CANCEL]
+];
+
 var COLORS = [
     ['#ccedff', '', ''], // water
     ['#EFEBE9', '#D7CCC8', '#D7CCC8'], // land
@@ -113,36 +154,13 @@ var viewportY = 200.0;
 var dirty = true;
 var map = null;
 var pinchLength = 0;
+var cpState = CP_STATE_NONE;
 var selectedUnit = null;
-var units = [
-    {'type': UNIT_TYPE_CITY,     'team': 4,  'x': 8, 'y': 7,   'level': 5},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 4,  'x': 9, 'y': 7,   'level': 1},
-    {'type': UNIT_TYPE_CITY,     'team': 2,  'x': 8, 'y': 10,  'level': 5},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 2,  'x': 9, 'y': 10,  'level': 1},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 2,  'x': 0, 'y': 0,   'level': 1},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 2,  'x': 1, 'y': 0,   'level': 1},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 2,  'x': 0, 'y': 1,   'level': 1},
-    {'type': UNIT_TYPE_WARRIOR,  'team': 2,  'x': 1, 'y': 1,   'level': 1},
-];
+var units = null;
 
 function init() {
-    map = new Array(MAP_HEIGHT);
-
-    // Earth
-    for (var y = 0; y < MAP_HEIGHT; y++) {
-        map[y] = new Array(MAP_WIDTH);
-        for (var x = 0; x < MAP_WIDTH; x++) {
-            var value = parseInt(MAP_EARTH[y].charAt(x));
-            var tileType = value === TILE_WATER ? TILE_WATER : TILE_LAND;
-            var tileTeam = value > TILE_LAND ? value - TILE_LAND - 1 : -1;
-            map[y][x] = {'value': value, 'type': tileType, 'team': tileTeam};
-        }
-    }
-
-    for (var i = 0; i < units.length; i++) {
-        var unit = units[i];
-        map[unit.y][unit.x]['unit'] = unit;
-    }
+    createMap();
+    updateCulture();
 
     canvas = document.querySelector('canvas');
     canvasCtx = canvas.getContext('2d');
@@ -165,7 +183,134 @@ function init() {
 
     resize();
     loop();
-};
+}
+
+function createMap() {
+    map = new Array(MAP_HEIGHT);
+
+    for (var y = 0; y < MAP_HEIGHT; y++) {
+        map[y] = new Array(MAP_WIDTH);
+        for (var x = 0; x < MAP_WIDTH; x++) {
+            map[y][x] = {
+                'x': x,
+                'y': y,
+                'type': TILE_WATER,
+                'team': -1,
+                'culture': new Array(MAX_PLAYERS),
+                'unit': null};
+        }
+    }
+
+    // Create continents / islands of land tiles
+    var landTiles = [];
+    for (var i = 0; i < 20; i++) {
+        var centerX = Math.round(Math.random() * MAP_WIDTH);
+        var centerY = Math.round((0.2 + Math.random() * 0.6) * MAP_HEIGHT);
+        var size = Math.ceil(1 + Math.random() * 8);
+        for (var dy = -size; dy <= size; dy++) {
+            for (var dx = -size; dx <= size; dx++) {
+                var x = centerX + dx;
+                var y = centerY + dy;
+                var dist = tileDist(centerX, centerY, x, y);
+                if (dist <= size) {
+                    var p = 1.0 - 0.25 * (dist / size);
+                    if (Math.random() < p) {
+                        var tile = getTile(x, y);
+                        tile.type = TILE_LAND;
+                        landTiles.push(tile);
+                    }
+                }
+            }
+        }
+    }
+
+    // Build a list of candidates for cities
+    // Candidates must be land tiles with 3/3 water/land neighbors
+    var candidates = [];
+    for (var i = 0; i < landTiles.length; i++) {
+        var landNeighbors = 0;
+        for (var dy = -1; dy <= 1; dy++) {
+            var y = landTiles[i].y + dy;
+            if (y >= 1 && y < MAP_HEIGHT - 1) {
+                for (var dx = -1; dx <= 1; dx++) {
+                    if (dx !== 0 || dy !== 0) {
+                        var x = landTiles[i].x + dx;
+                        var dist = tileDist(landTiles[i].x, landTiles[i].y, x, y);
+                        if (dist <= 1.0) {
+                            var tile = getTile(x, y);
+                            if (tile.type === TILE_LAND) {
+                                landNeighbors++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (landNeighbors === 3) {
+            candidates.push(landTiles[i]);
+        }
+    }
+
+    // Identify the cities by choosing candidates that are
+    // as far apart as possible.
+    var cities = [];
+    cities.push(candidates.shift());
+    while (cities.length < MAX_PLAYERS) {
+        var maxDist = 0;
+        var maxIndex = 0;
+        for (var i = 0; i < candidates.length; i++) {
+            var minDist = MAP_WIDTH * MAP_HEIGHT;
+            for (var j = 0; j < cities.length; j++) {
+                var dist = tileDist(cities[j].x, cities[j].y, candidates[i].x, candidates[i].y);
+                minDist = Math.min(minDist, dist);
+            }
+            if (minDist > maxDist) {
+                maxDist = minDist;
+                maxIndex = i;
+            }
+        }
+
+        cities.push(candidates.splice(maxIndex, 1)[0]);
+    }
+
+    // Convert the city tiles into units.
+    // Each civ gets a city, a settler, and a warrior.
+    units = [];
+    for (var i = 0; i < cities.length; i++) {
+        var cityTile = cities[i];
+        var cityUnit = {'type': UNIT_TYPE_CITY, 'team': i, 'x': cityTile.x, 'y': cityTile.y, 'level': 1};
+        var settlerUnit = null;
+        var warriorUnit = null;
+        for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+                var dist = tileDist(cityTile.x, cityTile.y, cityTile.x + dx, cityTile.y + dy);
+                if (dist <= 1.0) {
+                    var tile = getTile(cityTile.x + dx, cityTile.y + dy);
+                    if ((dx !== 0 || dy !== 0) && tile.type === TILE_LAND && tile.unit === null) {
+                        if (settlerUnit === null) {
+                            settlerUnit = {'type': UNIT_TYPE_SETTLER, 'team': i, 'x': tile.x, 'y': tile.y, 'level': 1};
+                        } else if (warriorUnit === null) {
+                            warriorUnit = {'type': UNIT_TYPE_WARRIOR, 'team': i, 'x': tile.x, 'y': tile.y, 'level': 1};
+                        }
+                    }
+                }
+            }
+        }
+
+        units.push(cityUnit);
+        units.push(settlerUnit);
+        units.push(warriorUnit);
+    }
+
+    for (var i = 0; i < units.length; i++) {
+        var unit = units[i];
+        unit.health = unit.level;
+        map[unit.y][unit.x]['unit'] = unit;
+    }
+
+    viewportX = units[0].x * DEFAULT_TILE_WIDTH;
+    viewportY = units[0].y * DEFAULT_TILE_HEIGHT;
+}
 
 function resize() {
     viewportWidth = Math.max(1, Math.min(MAX_WIDTH, window.innerWidth));
@@ -182,6 +327,53 @@ function resize() {
     dirty = true;
 }
 
+function updateCulture() {
+    // Clear all culture
+    for (var y = 0; y < MAP_HEIGHT; y++) {
+        for (var x = 0; x < MAP_WIDTH; x++) {
+            map[y][x].team = -1;
+            for (var t = 0; t < MAX_PLAYERS; t++) {
+                map[y][x].culture[t] = 0;
+            }
+        }
+    }
+
+    // Sum the culture impact from each city
+    for (var i = 0; i < units.length; i++) {
+        if (units[i].type === UNIT_TYPE_CITY) {
+            var level = units[i].level;
+            var x = units[i].x;
+            var y = units[i].y;
+            for (var dy = -level; dy <= level; dy++) {
+                if (y + dy >= 0 && y + dy < MAP_HEIGHT) {
+                    for (var dx = -level; dx <= level; dx++) {
+                        var dist = tileDist(x, y, x + dx, y + dy);
+                        if (dist <= level + 0.1) {
+                            var tile = getTile(x + dx, y + dy);
+                            var impact = 1 + level - Math.ceil(dist);
+                            tile.culture[units[i].team] += impact;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Determine the city with the highest culture per tile
+    for (var y = 0; y < MAP_HEIGHT; y++) {
+        for (var x = 0; x < MAP_WIDTH; x++) {
+            map[y][x].team = -1;
+            var best = 0;
+            for (var t = 0; t < MAX_PLAYERS; t++) {
+                if (map[y][x].culture[t] > best) {
+                    best = map[y][x].culture[t];
+                    map[y][x].team = t;
+                }
+            }
+        }
+    }
+}
+
 function draw() {
     var ctx = bufferCtx;
 
@@ -191,7 +383,7 @@ function draw() {
     drawLand(ctx);
     drawCulture(ctx);
     drawUnits(ctx);
-    drawSelectedUnit(ctx);
+    drawControlPanel(ctx);
     drawOverlays(ctx);
     ctx.restore();
     canvasCtx.drawImage(buffer, 0, 0);
@@ -237,40 +429,11 @@ function drawTileEngine(ctx, stage) {
             }
 
             var tile = getTile(x, y);
-            var fillColor = COLORS[tile.value][0];
-            var borderColor = COLORS[tile.value][2];
-            var unitColor = COLORS[tile.value][2];
-
             if (tile.type !== TILE_WATER && ((stage === 0 && tile.team === -1) || (stage === 1 && tile.team >= 0))) {
-                //     x1   x2   x3
-                // y1      /  \
-                //       /      \
-                // y2  |         |
-                //     |         |
-                // y3  |         |
-                //       \      /
-                // y4      \  /
-
-                var drawX1 = tx;
-                var drawX2 = tx + tileWidth / 2;
-                var drawX3 = tx + tileWidth;
-
-                var drawY1 = ty;
-                var drawY2 = ty + tileHeight / 3;
-                var drawY3 = ty + tileHeight;
-                var drawY4 = ty + tileHeight * 4 / 3;
-
-                ctx.fillStyle = fillColor;
-                ctx.strokeStyle = borderColor;
-                ctx.beginPath();
-                ctx.moveTo(drawX1, drawY2);
-                ctx.lineTo(drawX2, drawY1);
-                ctx.lineTo(drawX3, drawY2);
-                ctx.lineTo(drawX3, drawY3);
-                ctx.lineTo(drawX2, drawY4);
-                ctx.lineTo(drawX1, drawY3);
-                ctx.closePath();
+                createHexPath(ctx, tx, ty, tileWidth, tileHeight);
+                ctx.fillStyle = COLORS[tile.team + 2][0];
                 ctx.fill();
+                ctx.strokeStyle = COLORS[tile.team + 2][2];
                 ctx.stroke();
             }
 
@@ -282,7 +445,40 @@ function drawTileEngine(ctx, stage) {
     }
 }
 
-function drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight) {
+function createHexPath(ctx, tx, ty, tileWidth, tileHeight) {
+    //     x1   x2   x3
+    // y1      /  \
+    //       /      \
+    // y2  |         |
+    //     |         |
+    // y3  |         |
+    //       \      /
+    // y4      \  /
+
+    var drawX1 = tx;
+    var drawX2 = tx + tileWidth / 2;
+    var drawX3 = tx + tileWidth;
+
+    var drawY1 = ty;
+    var drawY2 = ty + tileHeight / 3;
+    var drawY3 = ty + tileHeight;
+    var drawY4 = ty + tileHeight * 4 / 3;
+
+    ctx.beginPath();
+    ctx.moveTo(drawX1, drawY2);
+    ctx.lineTo(drawX2, drawY1);
+    ctx.lineTo(drawX3, drawY2);
+    ctx.lineTo(drawX3, drawY3);
+    ctx.lineTo(drawX2, drawY4);
+    ctx.lineTo(drawX1, drawY3);
+    ctx.closePath();
+}
+
+function drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight, noHighlight) {
+    if (unit === selectedUnit && !noHighlight) {
+        drawHighlight(ctx, tx, ty, tileWidth, tileHeight);
+    }
+
     ctx.fillStyle = COLORS[2 + unit.team][2];
 
     if (unit.type === UNIT_TYPE_CITY) {
@@ -302,6 +498,13 @@ function drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight) {
         ctx.textAlign = 'center';
         ctx.fillText(unit.level.toFixed(), textX, textY);
     }
+}
+
+function drawHighlight(ctx, tx, ty, tileWidth, tileHeight) {
+    // Draw a yellow hex for highlight
+    createHexPath(ctx, tx, ty, tileWidth, tileHeight);
+    ctx.fillStyle = '#ff0';
+    ctx.fill();
 }
 
 function drawCity(ctx, tx, ty, tileWidth, tileHeight) {
@@ -336,24 +539,36 @@ function drawWarrior(ctx, tx, ty, tileWidth, tileHeight) {
     ctx.fill();
 }
 
-function drawSelectedUnit(ctx) {
-    if (!selectedUnit) {
+function drawControlPanel(ctx) {
+    if (cpState === CP_STATE_NONE) {
         return;
     }
 
-    var y = viewportHeight - 100;
+    var y = viewportHeight - CONTROL_PANEL_HEIGHT;
+    drawUnit(ctx, selectedUnit, -10, y - 18, CONTROL_PANEL_HEIGHT, CONTROL_PANEL_HEIGHT, true);
 
-    ctx.fillStyle = '#444';
-    ctx.fillRect(0, y, viewportWidth, 100);
+    var health = 100.0 * selectedUnit.health / selectedUnit.level;
 
-    drawUnit(ctx, selectedUnit, -10, y - 15, 100, 100);
+    var str = 'Level ' + selectedUnit.level + ' ' +
+            UNIT_NAMES[selectedUnit.type] +
+            ', Strength ' + selectedUnit.health + ' (' + health.toFixed(1) + '%)';
 
-    ctx.fillStyle = '#fff';
-    ctx.font = '12px Arial';
+    ctx.font = '16px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(UNIT_NAMES[selectedUnit.type], 90, y + 30);
-    ctx.fillText('Level: ' + selectedUnit.level, 90, y + 50);
-    ctx.fillText('Strength: 100', 90, y + 70);
+    drawText(ctx, str, 90, y + 30, '#fff');
+
+    var buttons = CP_BUTTONS[cpState];
+    var buttonX = BUTTON_X;
+    var buttonY = BUTTON_Y + y;
+    for (var i = 0; i < buttons.length; i++) {
+        ctx.fillStyle = '#8ce';
+        ctx.fillRect(buttonX, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT);
+        ctx.fillStyle = '#444';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(BUTTON_TEXT[buttons[i]], buttonX + 0.5 * BUTTON_WIDTH, buttonY + 0.6 * BUTTON_HEIGHT);
+        buttonX += BUTTON_WIDTH + BUTTON_PADDING;
+    }
 }
 
 function drawOverlays(ctx) {
@@ -365,6 +580,18 @@ function drawOverlays(ctx) {
     ctx.fillText('height = ' + canvas.height, 10, 60);
     ctx.fillText('viewportX = ' + viewportX.toFixed(2), 10, 80);
     ctx.fillText('viewportY = ' + viewportY.toFixed(2), 10, 100);
+}
+
+function drawText(ctx, str, x, y, color) {
+    ctx.fillStyle = '#444';
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 3;
+    ctx.strokeText(str, x, y);
+    ctx.strokeText(str, x, y + 1);
+    ctx.fillText(str, x, y);
+    ctx.fillText(str, x, y + 1);
+    ctx.fillStyle = color;
+    ctx.fillText(str, x, y);
 }
 
 function updateFps() {
@@ -401,14 +628,41 @@ function getTile(x, y) {
     return null;
 }
 
-function getTileAt(windowX, windowY) {
-    var worldX = viewportX + (windowX - 0.5 * viewportWidth) / zoomFactor;
-    var worldY = viewportY + (windowY - 0.5 * viewportHeight) / zoomFactor;
-
+function getTileY(clientX, clientY) {
+    var worldY = viewportY + (clientY - 0.5 * viewportHeight) / zoomFactor;
     var ty = Math.floor(worldY / DEFAULT_TILE_HEIGHT);
-    var tx = ty % 2 === 0 ? Math.floor(worldX / DEFAULT_TILE_WIDTH) : Math.floor(worldX / DEFAULT_TILE_WIDTH - 0.5);
+    return ty;
+}
 
+function getTileX(clientX, clientY) {
+    var worldX = viewportX + (clientX - 0.5 * viewportWidth) / zoomFactor;
+    var ty = getTileY(clientX, clientY);
+    var tx = ty % 2 === 0 ? Math.floor(worldX / DEFAULT_TILE_WIDTH) : Math.floor(worldX / DEFAULT_TILE_WIDTH - 0.5);
+    return tx;
+}
+
+function getTileAt(clientX, clientY) {
+    var tx = getTileX(clientX, clientY);
+    var ty = getTileY(clientX, clientY);
     return getTile(tx, ty);
+}
+
+function tileDist(x1, y1, x2, y2) {
+    if (y1 % 2 === 1) {
+        x1 += 0.5;
+    }
+
+    if (y2 % 2 === 1) {
+        x2 += 0.5;
+    }
+
+    var dx = Math.abs(x2 - x1);
+    if (dx > MAP_WIDTH / 2) {
+        dx -= MAP_WIDTH;
+    }
+
+    var dy = 0.866 * (y2 - y1);
+    return Math.sqrt(dx * dx + dy * dy);
 }
 
 function getUnit(x, y) {
@@ -418,54 +672,132 @@ function getUnit(x, y) {
 
 function handleMouseDown(e) {
     e.preventDefault();
+    fixTouchEvent(e);
+    clickX = e.x;
+    clickY = e.y;
+    mouseDownTime = getTime();
+
+    if (isOverControlPanel()) {
+        return;
+    }
 
     if (e.touches && e.touches.length === 2) {
         handlePinchEvent(e);
         return;
     }
 
-    fixTouchEvent(e);
-
     dragging = true;
-    clickX = e.x;
-    clickY = e.y;
-    mouseDownTime = getTime();
 }
 
 function handleMouseMove(e) {
     e.preventDefault();
+    fixTouchEvent(e);
 
     if (e.touches && e.touches.length === 2) {
         handlePinchEvent(e);
         return;
     }
 
-    fixTouchEvent(e);
-
-    if (dragging) {
+    if (!isOverControlPanel() && dragging) {
         viewportX += (clickX - e.x) / zoomFactor;
         viewportY += (clickY - e.y) / zoomFactor;
-        clickX = e.x;
-        clickY = e.y;
+        if (viewportY < 0) {
+            viewportY = 0;
+        }
+        if (viewportY > MAP_HEIGHT * DEFAULT_TILE_HEIGHT) {
+            viewportY = MAP_HEIGHT * DEFAULT_TILE_HEIGHT;
+        }
+
         dirty = true;
     }
+
+    clickX = e.x;
+    clickY = e.y;
 }
 
 function handleMouseUp(e) {
     e.preventDefault();
-    fixTouchEvent(e);
 
     dragging = false;
 
-    console.log('duration = ' + (getTime() - mouseDownTime));
     if (getTime() - mouseDownTime < 300) {
-        handleClick(e);
+        if (isOverControlPanel()) {
+            handleControlPanelClick();
+        } else {
+            handleMapClick();
+        }
     }
 }
 
-function handleClick(e) {
+function handleControlPanelClick() {
+    var y = viewportHeight - CONTROL_PANEL_HEIGHT;
+    var buttons = CP_BUTTONS[cpState];
+    var buttonX = BUTTON_X;
+    var buttonY = BUTTON_Y + y;
+    for (var i = 0; i < buttons.length; i++) {
+        if (clickX >= buttonX && clickX <= buttonX + BUTTON_WIDTH &&
+                clickY >= buttonY && clickY <= buttonY + BUTTON_HEIGHT) {
+            handleButtonAction(buttons[i]);
+        }
+        buttonX += BUTTON_WIDTH + BUTTON_PADDING;
+    }
+}
+
+function handleButtonAction(action) {
+    switch (action) {
+    case CP_ACTION_MOVE:
+        cpState = CP_STATE_MOVE;
+        break;
+
+    case CP_ACTION_ATTACK:
+        cpState = CP_STATE_ATTACK;
+        break;
+
+    case CP_ACTION_BUILD:
+        if (buildCity(selectedUnit)) {
+            selectedUnit = null;
+            cpState = CP_STATE_NONE;
+        }
+        break;
+
+    case CP_ACTION_CANCEL:
+        selectUnit(selectedUnit);
+        break;
+
+    default:
+        console.log('Unhandled button action "' + BUTTON_TEXT[action] + '" (' + action + ')');
+        break;
+    }
+
+    dirty = true;
+}
+
+function handleMapClick() {
     var tile = getTileAt(clickX, clickY);
-    selectedUnit = tile && tile.unit;
+
+    switch (cpState) {
+    case CP_STATE_MOVE:
+        var newX = getTileX(clickX, clickY);
+        var newY = getTileY(clickX, clickY);
+        if (moveUnit(selectedUnit, newX, newY)) {
+            selectedUnit = null;
+            cpState = CP_STATE_NONE;
+        }
+        break;
+
+    case CP_STATE_ATTACK:
+        var newX = getTileX(clickX, clickY);
+        var newY = getTileY(clickX, clickY);
+        if (attackUnit(selectedUnit, newX, newY)) {
+            selectedUnit = null;
+            cpState = CP_STATE_NONE;
+        }
+        break;
+
+    default:
+        selectUnit(tile && tile.unit);
+    }
+
     dirty = true;
 }
 
@@ -473,6 +805,79 @@ function handleMouseWheel(e) {
     var delta = Math.max(-1, Math.min(1, (e.wheelDelta || -e.detail)));
     var factor = Math.pow(1.3, delta);
     zoom(factor);
+}
+
+function isOverControlPanel(e) {
+    return selectedUnit !== null && clickY > viewportHeight - CONTROL_PANEL_HEIGHT;
+}
+
+function selectUnit(unit) {
+    selectedUnit = unit || null;
+    if (selectedUnit) {
+        if (selectedUnit.type === UNIT_TYPE_CITY) {
+            cpState = CP_STATE_CITY;
+        } else if (selectedUnit.type === UNIT_TYPE_SETTLER) {
+            cpState = CP_STATE_SETTLER;
+        } else if (selectedUnit.type === UNIT_TYPE_WARRIOR) {
+            cpState = CP_STATE_WARRIOR;
+        }
+    } else {
+        cpState = CP_STATE_NONE;
+    }
+}
+
+function moveUnit(unit, newX, newY) {
+    if (getTile(newX, newY).unit !== null) {
+        return false;
+    }
+
+    var oldX = selectedUnit.x;
+    var oldY = selectedUnit.y;
+    getTile(oldX, oldY).unit = null;
+    getTile(newX, newY).unit = selectedUnit;
+    selectedUnit.x = newX;
+    selectedUnit.y = newY;
+    return true;
+}
+
+function attackUnit(unit, targetX, targetY) {
+    var other = getTile(targetX, targetY).unit;
+    if (!other) {
+        return false;
+    }
+
+    var p = Math.random();
+    if (p < 0.5) {
+        unit.health--;
+    } else {
+        other.health--;
+    }
+
+    if (other.health <= 0) {
+        destroyUnit(other);
+        moveUnit(unit, targetX, targetY);
+    }
+
+    return true;
+}
+
+function destroyUnit(unit) {
+    map[unit.y][unit.x].unit = null;
+    var index = units.indexOf(unit);
+    if (index >= 0) {
+        units.splice(index, 1);
+    }
+    if (unit.type === UNIT_TYPE_CITY) {
+        updateCulture();
+    }
+}
+
+function buildCity(unit) {
+    unit.type = UNIT_TYPE_CITY;
+    unit.level = 1;
+    unit.health = 1;
+    updateCulture();
+    return true;
 }
 
 function zoom(factor) {
@@ -492,7 +897,7 @@ function handlePinchEvent(e) {
 }
 
 function fixTouchEvent(e) {
-    if (e.touches && e.touches.length === 1) {
+    if (e.touches && e.touches.length >= 1) {
         e.x = e.clientX = e.touches[0].clientX;
         e.y = e.clientY = e.touches[0].clientY;
     }
