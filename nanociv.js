@@ -26,7 +26,6 @@ var UNIT_TYPE_SETTLER = 1;
 var UNIT_TYPE_WARRIOR = 2;
 
 var CONTROL_PANEL_HEIGHT = 100;
-var BUTTON_X = 90;
 var BUTTON_Y = 45;
 var BUTTON_WIDTH = 80;
 var BUTTON_HEIGHT = 35;
@@ -46,6 +45,8 @@ var CP_ACTION_MOVE = 3;
 var CP_ACTION_BUILD = 4;
 var CP_ACTION_ATTACK = 5;
 var CP_ACTION_CANCEL = 6;
+var CP_ACTION_NEXT = 7;
+var CP_ACTION_END = 8;
 
 var BUTTON_TEXT = [
     'Settler',
@@ -54,11 +55,13 @@ var BUTTON_TEXT = [
     'Move',
     'Build',
     'Attack',
-    'Cancel'
+    'Cancel',
+    'Next Unit',
+    'End Turn'
 ];
 
 var CP_BUTTONS = [
-    /* CP_STATE_NONE */    [],
+    /* CP_STATE_NONE */    [CP_ACTION_NEXT, CP_ACTION_END],
     /* CP_STATE_CITY */    [CP_ACTION_SETTLER, CP_ACTION_WARRIOR, CP_ACTION_DEFEND],
     /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_DEFEND],
     /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_DEFEND],
@@ -157,6 +160,7 @@ var pinchLength = 0;
 var cpState = CP_STATE_NONE;
 var selectedUnit = null;
 var units = null;
+var turn = 0;
 
 function init() {
     createMap();
@@ -540,25 +544,25 @@ function drawWarrior(ctx, tx, ty, tileWidth, tileHeight) {
 }
 
 function drawControlPanel(ctx) {
-    if (cpState === CP_STATE_NONE) {
-        return;
+    var x = selectedUnit ? 90 : 20;
+    var y = viewportHeight - CONTROL_PANEL_HEIGHT;
+
+    if (selectedUnit) {
+        drawUnit(ctx, selectedUnit, -10, y - 18, CONTROL_PANEL_HEIGHT, CONTROL_PANEL_HEIGHT, true);
+
+        var health = 100.0 * selectedUnit.health / selectedUnit.level;
+
+        var str = 'Level ' + selectedUnit.level + ' ' +
+                UNIT_NAMES[selectedUnit.type] +
+                ', Strength ' + selectedUnit.health + ' (' + health.toFixed(1) + '%)';
+
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'left';
+        drawText(ctx, str, 90, y + 30, '#fff');
     }
 
-    var y = viewportHeight - CONTROL_PANEL_HEIGHT;
-    drawUnit(ctx, selectedUnit, -10, y - 18, CONTROL_PANEL_HEIGHT, CONTROL_PANEL_HEIGHT, true);
-
-    var health = 100.0 * selectedUnit.health / selectedUnit.level;
-
-    var str = 'Level ' + selectedUnit.level + ' ' +
-            UNIT_NAMES[selectedUnit.type] +
-            ', Strength ' + selectedUnit.health + ' (' + health.toFixed(1) + '%)';
-
-    ctx.font = '16px Arial';
-    ctx.textAlign = 'left';
-    drawText(ctx, str, 90, y + 30, '#fff');
-
     var buttons = CP_BUTTONS[cpState];
-    var buttonX = BUTTON_X;
+    var buttonX = x;
     var buttonY = BUTTON_Y + y;
     for (var i = 0; i < buttons.length; i++) {
         ctx.fillStyle = '#8ce';
@@ -575,11 +579,8 @@ function drawOverlays(ctx) {
     ctx.fillStyle = '#444';
     ctx.font = '12px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText('FPS = ' + fps.toFixed(2), 10, 20);
-    ctx.fillText('width = ' + canvas.width, 10, 40);
-    ctx.fillText('height = ' + canvas.height, 10, 60);
-    ctx.fillText('viewportX = ' + viewportX.toFixed(2), 10, 80);
-    ctx.fillText('viewportY = ' + viewportY.toFixed(2), 10, 100);
+    ctx.fillText('Turn = ' + turn, 10, 20);
+    ctx.fillText('FPS = ' + fps.toFixed(2), 10, 40);
 }
 
 function drawText(ctx, str, x, y, color) {
@@ -730,9 +731,10 @@ function handleMouseUp(e) {
 }
 
 function handleControlPanelClick() {
+    var x = selectedUnit ? 90 : 20;
     var y = viewportHeight - CONTROL_PANEL_HEIGHT;
     var buttons = CP_BUTTONS[cpState];
-    var buttonX = BUTTON_X;
+    var buttonX = x;
     var buttonY = BUTTON_Y + y;
     for (var i = 0; i < buttons.length; i++) {
         if (clickX >= buttonX && clickX <= buttonX + BUTTON_WIDTH &&
@@ -762,6 +764,10 @@ function handleButtonAction(action) {
 
     case CP_ACTION_CANCEL:
         selectUnit(selectedUnit);
+        break;
+
+    case CP_ACTION_END:
+        endTurn();
         break;
 
     default:
@@ -808,7 +814,7 @@ function handleMouseWheel(e) {
 }
 
 function isOverControlPanel(e) {
-    return selectedUnit !== null && clickY > viewportHeight - CONTROL_PANEL_HEIGHT;
+    return clickY > viewportHeight - CONTROL_PANEL_HEIGHT + BUTTON_Y;
 }
 
 function selectUnit(unit) {
@@ -878,6 +884,18 @@ function buildCity(unit) {
     unit.health = 1;
     updateCulture();
     return true;
+}
+
+function endTurn() {
+    for (var i = 0; i < units.length; i++) {
+        if (units[i].type === UNIT_TYPE_CITY && units[i].level < 16) {
+            units[i].level++;
+            units[i].health++;
+        }
+    }
+
+    updateCulture();
+    turn++;
 }
 
 function zoom(factor) {
