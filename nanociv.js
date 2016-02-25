@@ -48,6 +48,14 @@ var CP_ACTION_CANCEL = 6;
 var CP_ACTION_NEXT = 7;
 var CP_ACTION_END = 8;
 
+var ORDER_NONE = 0;
+var ORDER_DEFEND = 1;
+var ORDER_BUILD_SETTLER = 2;
+var ORDER_BUILD_WARRIOR = 3;
+var ORDER_MOVE = 4;
+var ORDER_ATTACK = 5;
+var ORDER_EXPLORE = 6;
+
 var BUTTON_TEXT = [
     'Settler',
     'Warrior',
@@ -83,59 +91,6 @@ var UNIT_NAMES = [
     'City',
     'Settler',
     'Warrior'
-]
-
-var MAP_EARTH = [
-'11111111111111111111111111111111111111111111111111111111111111111111111111111111',
-'00111111111111111111111111111111111100000000000111111111111111111111111111100000',
-'00111111111111111111111111111111111000000000000001111111111111111111111100000000',
-'10111111111111111111111111111111110000000000000000011111111111111111111100000000',
-'00011110000001110000111000011111100000000010000000001011111111111111111100000000',
-'01111111111111111110011100011110000000001111110111111111111111111111111111111000',
-'11111116661111111000001000011000000110011011111111111111111111111111111111111100',
-'11111116661111110000100000000000000011011011111111111111111111111111111111001000',
-'00000116661111110001111000000000001011001011111111111111111111111111111000001000',
-'00000114445551111001111100000000001010000111111111111111111111111111111000001100',
-'00000114445551111111111000000000000000111111111111111111111111111111111111000000',
-'00000114445551101111100100000000000011111111111111111111111111111111111111000000',
-'00000222223331101111100000000000001111111111100011001011111111111111111111000000',
-'00002222223331111110000000000000001111001011100001001111111111111111111110000000',
-'00002222223331111100000000000000001110011010011111101111111111111111110100000000',
-'00001111111111111000000000000000000000000010000111111111111111111111111000001000',
-'00001111111111110000000000000000000111110000000111111111111111111111111000000000',
-'00000111111111100000000000000000001111111101111111111111111111111111111100000000',
-'00000011110000100000000000000000011111111111111111100111111111111111111100000000',
-'00000011110001000000000000000000011111111111111011110000111111111111111100000000',
-'00000001100000000000000000000000111111111111111001111110011111111111110000000000',
-'00000001110100000000000000000000111111111111111101111100011111001111000000000000',
-'00000000011110000000000000000000111111111111111100111000001110000111100000000000',
-'00000000000110000000000000000000111111111111111110000000001100000011100000000000',
-'00000000000011001100000000000000111111111111111111110000000100000000100000000000',
-'00000000000001111111100000000000011111111111111111110000000000000000000000000000',
-'00000000000000011111110000000000001100011111111111110000000000000001000000000000',
-'00000000000000011111111000000000000000001111111111100000000000000010001100000000',
-'00000000000000111111111000000000000000001111111111000000000000000001001100000000',
-'00000000000000111111111111100000000000001111111110000000000000000000100000001100',
-'00000000000000111111111111110000000000000111111110000000000000000000000000000110',
-'00000000000000011111111111110000000000000111111110000000000000000000000000000001',
-'00000000000000011111111111100000000000000111111110000000000000000000000000000000',
-'00000000000000001111111111100000000000000111111110010000000000000000000011100100',
-'00000000000000000111111111100000000000000111111100110000000000000000000111111100',
-'00000000000000000011111111100000000000000111111000110000000000000000011111111110',
-'00000000000000000011111110000000000000000111111000100000000000000000111111111111',
-'00000000000000000011111100000000000000000111111000000000000000000000111111111111',
-'00000000000000000011111100000000000000000011110000000000000000000000111111111111',
-'00000000000000000011111100000000000000000011100000000000000000000000111001111110',
-'00000000000000000011111000000000000000000000000000000000000000000000000000111100',
-'00000000000000000011110000000000000000000000000000000000000000000000000000010000',
-'00000000000000000011100000000000000000000000000000000000000000000000000000000000',
-'00000000000000000001100000000000000000000000000000000000000000000000000000000000',
-'00000000000000000001100000000000000000000000000000000000000000000000000000000000',
-'00000000000000000001110000000000000000000000000000000000000000000000000000000000',
-'00000000000000000000010000000000000000000000000000000000000000000000000000000000',
-'00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-'00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-'11111111111111111111111111111111111111111111111111111111111111111111111111111111'
 ];
 
 var canvas = null;
@@ -282,7 +237,7 @@ function createMap() {
     units = [];
     for (var i = 0; i < cities.length; i++) {
         var cityTile = cities[i];
-        var cityUnit = {'type': UNIT_TYPE_CITY, 'team': i, 'x': cityTile.x, 'y': cityTile.y, 'level': 1};
+        var cityUnit = {'type': UNIT_TYPE_CITY, 'team': i, 'x': cityTile.x, 'y': cityTile.y};
         var settlerUnit = null;
         var warriorUnit = null;
         for (var dy = -1; dy <= 1; dy++) {
@@ -292,9 +247,9 @@ function createMap() {
                     var tile = getTile(cityTile.x + dx, cityTile.y + dy);
                     if ((dx !== 0 || dy !== 0) && tile.type === TILE_LAND && tile.unit === null) {
                         if (settlerUnit === null) {
-                            settlerUnit = {'type': UNIT_TYPE_SETTLER, 'team': i, 'x': tile.x, 'y': tile.y, 'level': 1};
+                            settlerUnit = {'type': UNIT_TYPE_SETTLER, 'team': i, 'x': tile.x, 'y': tile.y};
                         } else if (warriorUnit === null) {
-                            warriorUnit = {'type': UNIT_TYPE_WARRIOR, 'team': i, 'x': tile.x, 'y': tile.y, 'level': 1};
+                            warriorUnit = {'type': UNIT_TYPE_WARRIOR, 'team': i, 'x': tile.x, 'y': tile.y};
                         }
                     }
                 }
@@ -308,7 +263,10 @@ function createMap() {
 
     for (var i = 0; i < units.length; i++) {
         var unit = units[i];
-        unit.health = unit.level;
+        unit.level = 1;
+        unit.health = 1;
+        unit.order = ORDER_NONE;
+        unit.moved = false;
         map[unit.y][unit.x]['unit'] = unit;
     }
 
@@ -386,6 +344,7 @@ function draw() {
     drawOcean(ctx);
     drawLand(ctx);
     drawCulture(ctx);
+    drawPath(ctx);
     drawUnits(ctx);
     drawControlPanel(ctx);
     drawOverlays(ctx);
@@ -404,6 +363,47 @@ function drawLand(ctx) {
 
 function drawCulture(ctx) {
     drawTileEngine(ctx, 1);
+}
+
+function drawPath(ctx) {
+    if (!selectedUnit) {
+        return;
+    }
+
+    var goal = getTile(selectedUnit.destX, selectedUnit.destY);
+    if (!goal) {
+        return;
+    }
+
+    var start = getTile(selectedUnit.x, selectedUnit.y);
+    var path = findPath(start, goal);
+    if (!path) {
+        return;
+    }
+
+    var tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
+    var tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
+
+    ctx.beginPath();
+
+    for (var i = 0; i < path.length; i++) {
+        var x = tileWidth * path[i].x - viewportX * zoomFactor + 0.5 * viewportWidth + 0.5 * tileWidth;
+        var y = tileHeight * path[i].y - viewportY * zoomFactor + 0.5 * viewportHeight + 0.667 * tileHeight;
+        if (path[i].y % 2 === 1) {
+            x += tileWidth / 2;
+        }
+
+        x = normalizeCoordinate(x);
+
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
 }
 
 function drawUnits(ctx) {
@@ -832,17 +832,49 @@ function selectUnit(unit) {
     }
 }
 
-function moveUnit(unit, newX, newY) {
-    if (getTile(newX, newY).unit !== null) {
+function moveUnit(unit, goalX, goalY) {
+    var start = getTile(unit.x, unit.y);
+    var goal = getTile(goalX, goalY);
+    if (!goal) {
+        // Goal is out of bounds
         return false;
     }
 
-    var oldX = selectedUnit.x;
-    var oldY = selectedUnit.y;
-    getTile(oldX, oldY).unit = null;
-    getTile(newX, newY).unit = selectedUnit;
-    selectedUnit.x = newX;
-    selectedUnit.y = newY;
+    if (goal.type === TILE_WATER) {
+        // Goal is water
+        return false;
+    }
+
+    if (goal.unit !== null) {
+        // There is a unit at the goal
+        return false;
+    }
+
+    var path = findPath(start, goal);
+    if (!path) {
+        // No path to the goal
+        return false;
+    }
+
+    unit.order = ORDER_MOVE;
+
+    if (!unit.moved) {
+        // If the unit has not moved yet,
+        // go ahead and move one step.
+        var next = path[0];
+        start.unit = null;
+        next.unit = unit;
+        unit.x = next.x;
+        unit.y = next.y;
+        unit.destX = goalX;
+        unit.destY = goalY;
+        unit.moved = true;
+
+        if (unit.x === unit.destX && unit.y === unit.destY) {
+            unit.order = ORDER_NONE;
+        }
+    }
+
     return true;
 }
 
@@ -867,6 +899,29 @@ function attackUnit(unit, targetX, targetY) {
     return true;
 }
 
+function combat(attacker, defender) {
+    while (true) {
+        var result = combatImpl(attacker, defender);
+        if (result !== 0) {
+            return result;
+        }
+    }
+}
+
+function combatImpl(attacker, defender) {
+    var expected = attacker.level - defender.level;
+    var stdev = Math.min(attacker.level, defender.level);
+    return Math.round(expected + 2.0 * stdev * gaussian());
+}
+
+function gaussian() {
+    var sum = 0.0;
+    for (var i = 0; i < 6; i++) {
+        sum += Math.random();
+    }
+    return sum / 6.0 - 0.5;
+}
+
 function destroyUnit(unit) {
     map[unit.y][unit.x].unit = null;
     var index = units.indexOf(unit);
@@ -888,10 +943,16 @@ function buildCity(unit) {
 
 function endTurn() {
     for (var i = 0; i < units.length; i++) {
+        if (units[i].order === ORDER_MOVE) {
+            moveUnit(units[i], units[i].destX, units[i].destY);
+        }
+
         if (units[i].type === UNIT_TYPE_CITY && units[i].level < 16) {
             units[i].level++;
             units[i].health++;
         }
+
+        units[i].moved = false;
     }
 
     updateCulture();
@@ -950,6 +1011,63 @@ function normalizeTile(x) {
 
 function getTime() {
     return (new Date()).getTime();
+}
+
+function findPath(start, goal) {
+    for (var y = 0; y < MAP_HEIGHT; y++) {
+        for (var x = 0; x < MAP_WIDTH; x++) {
+            map[y][x].dist = Number.MAX_VALUE;
+            map[y][x].prev = null;
+        }
+    }
+
+    var q = [];
+    q.push(start);
+    start.dist = 0;
+    start.prev = null;
+
+    while (q.length > 0) {
+        var u = null;
+        var ui = -1;
+        for (var i = 0; i < q.length; i++) {
+            if (u === null || q[i].dist < u.dist) {
+                u = q[i];
+                ui = i;
+            }
+        }
+
+        if (u === goal) {
+            var path = [];
+            while (u.prev !== null) {
+                path.push(u);
+                u = u.prev;
+            }
+            path.reverse();
+            return path;
+        }
+
+        // Remove the element from the queue
+        q.splice(ui, 1);
+
+        for (var dy = -1; dy <= 1; dy++) {
+            if (u.y + dy >= 0 && u.y + dy < MAP_HEIGHT) {
+                for (var dx = -1; dx <= 1; dx++) {
+                    var dist = tileDist(u.x, u.y, u.x + dx, u.y + dy);
+                    if (dist <= 1.0) {
+                        var v = getTile(u.x + dx, u.y + dy);
+                        if (v.type === TILE_LAND && v.unit === null && v.dist > u.dist + 1) {
+                            v.dist = u.dist + 1;
+                            v.prev = u;
+                            q.push(v);
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+
+    return null;
 }
 
 init();
