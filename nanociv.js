@@ -103,12 +103,12 @@ var fps = 0;
 var frame = 0;
 var startTime = getTime();
 var dragging = false;
-var clickX = 0;
-var clickY = 0;
+var click = {x: 0, y: 0};
 var mouseDownTime = 0;
 var zoomFactor = 2.0;
-var viewportX = 200.0;
-var viewportY = 200.0;
+var tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
+var tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
+var scrollCenter = {x: 0, y: 0};
 var dirty = true;
 var map = null;
 var pinchLength = 0;
@@ -270,8 +270,8 @@ function createMap() {
         map[unit.y][unit.x]['unit'] = unit;
     }
 
-    viewportX = units[0].x * DEFAULT_TILE_WIDTH;
-    viewportY = units[0].y * DEFAULT_TILE_HEIGHT;
+    scrollCenter.x = units[0].x * DEFAULT_TILE_WIDTH;
+    scrollCenter.y = units[0].y * DEFAULT_TILE_HEIGHT;
 }
 
 function resize() {
@@ -381,29 +381,29 @@ function drawPath(ctx) {
         return;
     }
 
-    var tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
-    var tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
-
     ctx.beginPath();
 
     for (var i = 0; i < path.length; i++) {
-        var x = tileWidth * path[i].x - viewportX * zoomFactor + 0.5 * viewportWidth + 0.5 * tileWidth;
-        var y = tileHeight * path[i].y - viewportY * zoomFactor + 0.5 * viewportHeight + 0.667 * tileHeight;
-        if (path[i].y % 2 === 1) {
-            x += tileWidth / 2;
-        }
-
-        x = normalizeCoordinate(x);
-
+        var point = tileToScreen(path[i]);
         if (i === 0) {
-            ctx.moveTo(x, y);
+            ctx.moveTo(point.x, point.y);
         } else {
-            ctx.lineTo(x, y);
+            ctx.lineTo(point.x, point.y);
         }
     }
 
+    ctx.fillStyle = '#000';
     ctx.strokeStyle = '#000';
     ctx.stroke();
+
+    for (var i = 0; i < path.length; i++) {
+        var point = tileToScreen(path[i]);
+        var radius = 0.1 * tileWidth;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI, false);
+        ctx.closePath();
+        ctx.fill();
+    }
 }
 
 function drawUnits(ctx) {
@@ -411,22 +411,19 @@ function drawUnits(ctx) {
 }
 
 function drawTileEngine(ctx, stage) {
-    var tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
-    var tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
+    var startX = Math.floor((scrollCenter.x - (0.5 * viewportWidth / zoomFactor)) / DEFAULT_TILE_WIDTH) - 2;
+    var endX = Math.ceil((scrollCenter.x + (0.5 * viewportWidth / zoomFactor)) / DEFAULT_TILE_WIDTH);
 
-    var startX = Math.floor((viewportX - (0.5 * viewportWidth / zoomFactor)) / DEFAULT_TILE_WIDTH) - 2;
-    var endX = Math.ceil((viewportX + (0.5 * viewportWidth / zoomFactor)) / DEFAULT_TILE_WIDTH);
-
-    var startY = Math.max(0, Math.floor((viewportY - (0.5 * viewportHeight / zoomFactor)) / DEFAULT_TILE_HEIGHT) - 2);
-    var endY = Math.min(MAP_HEIGHT, Math.ceil((viewportY + (0.5 * viewportHeight / zoomFactor)) / DEFAULT_TILE_HEIGHT));
+    var startY = Math.max(0, Math.floor((scrollCenter.y - (0.5 * viewportHeight / zoomFactor)) / DEFAULT_TILE_HEIGHT) - 2);
+    var endY = Math.min(MAP_HEIGHT, Math.ceil((scrollCenter.y + (0.5 * viewportHeight / zoomFactor)) / DEFAULT_TILE_HEIGHT));
 
     var lineWidth = Math.max(1, 0.5 * zoomFactor);
     ctx.lineWidth = lineWidth;
 
     for (var y = startY; y < endY; y++) {
         for (var x = startX; x < endX; x++) {
-            var tx = tileWidth * x - viewportX * zoomFactor + 0.5 * viewportWidth;
-            var ty = tileHeight * y - viewportY * zoomFactor + 0.5 * viewportHeight;
+            var tx = tileWidth * x - scrollCenter.x * zoomFactor + 0.5 * viewportWidth;
+            var ty = tileHeight * y - scrollCenter.y * zoomFactor + 0.5 * viewportHeight;
 
             if (y % 2 === 1) {
                 tx += tileWidth / 2;
@@ -443,13 +440,13 @@ function drawTileEngine(ctx, stage) {
 
             var unit = getUnit(x, y);
             if (stage === 2 && unit) {
-                drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight);
+                drawUnit(ctx, unit, tx, ty);
             }
         }
     }
 }
 
-function createHexPath(ctx, tx, ty, tileWidth, tileHeight) {
+function createHexPath(ctx, tx, ty) {
     //     x1   x2   x3
     // y1      /  \
     //       /      \
@@ -478,19 +475,19 @@ function createHexPath(ctx, tx, ty, tileWidth, tileHeight) {
     ctx.closePath();
 }
 
-function drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight, noHighlight) {
+function drawUnit(ctx, unit, tx, ty, noHighlight) {
     if (unit === selectedUnit && !noHighlight) {
-        drawHighlight(ctx, tx, ty, tileWidth, tileHeight);
+        drawHighlight(ctx, tx, ty);
     }
 
     ctx.fillStyle = COLORS[2 + unit.team][2];
 
     if (unit.type === UNIT_TYPE_CITY) {
-        drawCity(ctx, tx, ty, tileWidth, tileHeight);
+        drawCity(ctx, tx, ty);
     } else if (unit.type === UNIT_TYPE_SETTLER) {
-        drawSettler(ctx, tx, ty, tileWidth, tileHeight);
+        drawSettler(ctx, tx, ty);
     } else if (unit.type === UNIT_TYPE_WARRIOR) {
-        drawWarrior(ctx, tx, ty, tileWidth, tileHeight);
+        drawWarrior(ctx, tx, ty);
     }
 
     var textX = tx + 0.50 * tileWidth;
@@ -504,14 +501,14 @@ function drawUnit(ctx, unit, tx, ty, tileWidth, tileHeight, noHighlight) {
     }
 }
 
-function drawHighlight(ctx, tx, ty, tileWidth, tileHeight) {
+function drawHighlight(ctx, tx, ty) {
     // Draw a yellow hex for highlight
-    createHexPath(ctx, tx, ty, tileWidth, tileHeight);
+    createHexPath(ctx, tx, ty);
     ctx.fillStyle = '#ff0';
     ctx.fill();
 }
 
-function drawCity(ctx, tx, ty, tileWidth, tileHeight) {
+function drawCity(ctx, tx, ty) {
     // Draw a square for a city
     var centerX = tx + 0.5 * tileWidth;
     var centerY = ty + 0.667 * tileHeight;
@@ -519,7 +516,7 @@ function drawCity(ctx, tx, ty, tileWidth, tileHeight) {
     ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
 }
 
-function drawSettler(ctx, tx, ty, tileWidth, tileHeight) {
+function drawSettler(ctx, tx, ty) {
     // Draw a triangle for a settler
     var centerX = tx + 0.5 * tileWidth;
     var centerY = ty + 0.7 * tileHeight;
@@ -532,7 +529,7 @@ function drawSettler(ctx, tx, ty, tileWidth, tileHeight) {
     ctx.fill();
 }
 
-function drawWarrior(ctx, tx, ty, tileWidth, tileHeight) {
+function drawWarrior(ctx, tx, ty) {
     // Draw a circle for a warrior
     var centerX = tx + 0.5 * tileWidth;
     var centerY = ty + 0.667 * tileHeight;
@@ -544,12 +541,10 @@ function drawWarrior(ctx, tx, ty, tileWidth, tileHeight) {
 }
 
 function drawControlPanel(ctx) {
-    var x = selectedUnit ? 90 : 20;
+    var x = 20;
     var y = viewportHeight - CONTROL_PANEL_HEIGHT;
 
     if (selectedUnit) {
-        drawUnit(ctx, selectedUnit, -10, y - 18, CONTROL_PANEL_HEIGHT, CONTROL_PANEL_HEIGHT, true);
-
         var health = 100.0 * selectedUnit.health / selectedUnit.level;
 
         var str = 'Level ' + selectedUnit.level + ' ' +
@@ -558,7 +553,7 @@ function drawControlPanel(ctx) {
 
         ctx.font = '16px Arial';
         ctx.textAlign = 'left';
-        drawText(ctx, str, 90, y + 30, '#fff');
+        drawText(ctx, str, x, y + 30, '#fff');
     }
 
     var buttons = CP_BUTTONS[cpState];
@@ -610,7 +605,7 @@ function updateFps() {
 }
 
 function loop() {
-    viewportX = normalizeCoordinate(viewportX);
+    scrollCenter.x = normalizeCoordinate(scrollCenter.x);
     updateFps();
 
     if (dirty) {
@@ -629,14 +624,25 @@ function getTile(x, y) {
     return null;
 }
 
+function tileToScreen(tile) {
+    var x = tileWidth * tile.x - scrollCenter.x * zoomFactor + 0.5 * viewportWidth + 0.5 * tileWidth;
+    var y = tileHeight * tile.y - scrollCenter.y * zoomFactor + 0.5 * viewportHeight + 0.667 * tileHeight;
+    if (tile.y % 2 === 1) {
+        x += tileWidth / 2;
+    }
+
+    x = normalizeCoordinate(x);
+    return {'x': x, 'y': y};
+}
+
 function getTileY(clientX, clientY) {
-    var worldY = viewportY + (clientY - 0.5 * viewportHeight) / zoomFactor;
+    var worldY = scrollCenter.y + (clientY - 0.5 * viewportHeight) / zoomFactor;
     var ty = Math.floor(worldY / DEFAULT_TILE_HEIGHT);
     return ty;
 }
 
 function getTileX(clientX, clientY) {
-    var worldX = viewportX + (clientX - 0.5 * viewportWidth) / zoomFactor;
+    var worldX = scrollCenter.x + (clientX - 0.5 * viewportWidth) / zoomFactor;
     var ty = getTileY(clientX, clientY);
     var tx = ty % 2 === 0 ? Math.floor(worldX / DEFAULT_TILE_WIDTH) : Math.floor(worldX / DEFAULT_TILE_WIDTH - 0.5);
     return tx;
@@ -674,8 +680,8 @@ function getUnit(x, y) {
 function handleMouseDown(e) {
     e.preventDefault();
     fixTouchEvent(e);
-    clickX = e.x;
-    clickY = e.y;
+    click.x = e.x;
+    click.y = e.y;
     mouseDownTime = getTime();
 
     if (isOverControlPanel()) {
@@ -700,20 +706,20 @@ function handleMouseMove(e) {
     }
 
     if (!isOverControlPanel() && dragging) {
-        viewportX += (clickX - e.x) / zoomFactor;
-        viewportY += (clickY - e.y) / zoomFactor;
-        if (viewportY < 0) {
-            viewportY = 0;
+        scrollCenter.x += (click.x - e.x) / zoomFactor;
+        scrollCenter.y += (click.y - e.y) / zoomFactor;
+        if (scrollCenter.y < 0) {
+            scrollCenter.y = 0;
         }
-        if (viewportY > MAP_HEIGHT * DEFAULT_TILE_HEIGHT) {
-            viewportY = MAP_HEIGHT * DEFAULT_TILE_HEIGHT;
+        if (scrollCenter.y > MAP_HEIGHT * DEFAULT_TILE_HEIGHT) {
+            scrollCenter.y = MAP_HEIGHT * DEFAULT_TILE_HEIGHT;
         }
 
         dirty = true;
     }
 
-    clickX = e.x;
-    clickY = e.y;
+    click.x = e.x;
+    click.y = e.y;
 }
 
 function handleMouseUp(e) {
@@ -731,14 +737,14 @@ function handleMouseUp(e) {
 }
 
 function handleControlPanelClick() {
-    var x = selectedUnit ? 90 : 20;
+    var x = 20;
     var y = viewportHeight - CONTROL_PANEL_HEIGHT;
     var buttons = CP_BUTTONS[cpState];
     var buttonX = x;
     var buttonY = BUTTON_Y + y;
     for (var i = 0; i < buttons.length; i++) {
-        if (clickX >= buttonX && clickX <= buttonX + BUTTON_WIDTH &&
-                clickY >= buttonY && clickY <= buttonY + BUTTON_HEIGHT) {
+        if (click.x >= buttonX && click.x <= buttonX + BUTTON_WIDTH &&
+                click.y >= buttonY && click.y <= buttonY + BUTTON_HEIGHT) {
             handleButtonAction(buttons[i]);
         }
         buttonX += BUTTON_WIDTH + BUTTON_PADDING;
@@ -779,12 +785,12 @@ function handleButtonAction(action) {
 }
 
 function handleMapClick() {
-    var tile = getTileAt(clickX, clickY);
+    var tile = getTileAt(click.x, click.y);
 
     switch (cpState) {
     case CP_STATE_MOVE:
-        var newX = getTileX(clickX, clickY);
-        var newY = getTileY(clickX, clickY);
+        var newX = getTileX(click.x, click.y);
+        var newY = getTileY(click.x, click.y);
         if (moveUnit(selectedUnit, newX, newY)) {
             selectedUnit = null;
             cpState = CP_STATE_NONE;
@@ -792,8 +798,8 @@ function handleMapClick() {
         break;
 
     case CP_STATE_ATTACK:
-        var newX = getTileX(clickX, clickY);
-        var newY = getTileY(clickX, clickY);
+        var newX = getTileX(click.x, click.y);
+        var newY = getTileY(click.x, click.y);
         if (attackUnit(selectedUnit, newX, newY)) {
             selectedUnit = null;
             cpState = CP_STATE_NONE;
@@ -814,7 +820,7 @@ function handleMouseWheel(e) {
 }
 
 function isOverControlPanel(e) {
-    return clickY > viewportHeight - CONTROL_PANEL_HEIGHT + BUTTON_Y;
+    return click.y > viewportHeight - CONTROL_PANEL_HEIGHT + BUTTON_Y;
 }
 
 function selectUnit(unit) {
@@ -934,9 +940,28 @@ function destroyUnit(unit) {
 }
 
 function buildCity(unit) {
+    var tile = getTile(unit.x, unit.y);
+    if (!tile) {
+        // Unit out of bounds.
+        return false;
+    }
+
+    if (tile.type !== TILE_LAND) {
+        // Tile is not land.
+        return false;
+    }
+
+    if (!(tile.team === -1 || tile.team === unit.team)) {
+        // Tile is owned by a different team.
+        return false;
+    }
+
     unit.type = UNIT_TYPE_CITY;
     unit.level = 1;
     unit.health = 1;
+    unit.order = ORDER_NONE;
+    unit.destX = unit.x;
+    unit.destY = unit.y;
     updateCulture();
     return true;
 }
@@ -961,6 +986,8 @@ function endTurn() {
 
 function zoom(factor) {
     zoomFactor = Math.max(1.0, Math.min(4.0, zoomFactor * factor));
+    tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
+    tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
     dirty = true;
 }
 
