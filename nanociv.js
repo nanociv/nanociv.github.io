@@ -17,6 +17,11 @@ var MAP_HEIGHT = 50;
 var DEFAULT_TILE_WIDTH = 20.0;
 var DEFAULT_TILE_HEIGHT = 0.866 * DEFAULT_TILE_WIDTH;
 
+var STAGE_OCEAN = 0;
+var STAGE_LAND = 1;
+var STAGE_CULTURE = 2;
+var STAGE_UNITS = 3;
+
 var TILE_WATER = 0;
 var TILE_LAND = 1;
 var MAX_PLAYERS = 5;
@@ -56,6 +61,10 @@ var ORDER_MOVE = 4;
 var ORDER_ATTACK = 5;
 var ORDER_EXPLORE = 6;
 
+var FOG_BLACK = 0;
+var FOG_REMEMBERED = 1;
+var FOG_VISIBLE = 2;
+
 var BUTTON_TEXT = [
     'Settler',
     'Warrior',
@@ -80,10 +89,10 @@ var CP_BUTTONS = [
 var COLORS = [
     ['#ccedff', ''], // water
     ['#EFEBE9', '#D7CCC8'], // land
+    ['#FFE0B2', '#F57C00'], // orange
     ['#BBDEFB', '#1976D2'], // blue
     ['#FFCDD2', '#D32F2F'], // red
     ['#C8E6C9', '#388E3C'], // green
-    ['#FFE0B2', '#F57C00'], // orange
     ['#E1BEE7', '#7B1FA2'], // purple
 ];
 
@@ -120,6 +129,7 @@ var turn = 0;
 function init() {
     createMap();
     updateCulture();
+    updateFog();
 
     canvas = document.querySelector('canvas');
     canvasCtx = canvas.getContext('2d');
@@ -156,7 +166,14 @@ function createMap() {
                 'type': TILE_WATER,
                 'team': -1,
                 'culture': new Array(MAX_PLAYERS),
+                'fog': new Array(MAX_PLAYERS),
+                'remembered': new Array(MAX_PLAYERS),
                 'unit': null};
+
+            for (var i = 0; i < MAX_PLAYERS; i++) {
+                map[y][x].fog[i] = FOG_BLACK;
+                map[y][x].remembered[i] = -1;
+            }
         }
     }
 
@@ -307,11 +324,44 @@ function updateCulture() {
     }
 }
 
+function updateFog() {
+    // Move all "visible" to "remembered"
+    for (var y = 0; y < MAP_HEIGHT; y++) {
+        for (var x = 0; x < MAP_WIDTH; x++) {
+            for (var t = 0; t < MAX_PLAYERS; t++) {
+                if (map[y][x].fog[t] === FOG_VISIBLE) {
+                    map[y][x].fog[t] = FOG_REMEMBERED;
+                }
+            }
+        }
+    }
+
+    // For all units, calculate visible
+    for (var i = 0; i < units.length; i++) {
+        var u = units[i];
+        var v = u.type === UNIT_TYPE_CITY ? 2 : 1;
+        for (var dy = -v; dy <= v; dy++) {
+            if (u.x + dy >= 0 && u.y < MAP_HEIGHT) {
+                for (var dx = -v; dx <= v; dx++) {
+                    var dist = tileDist(u.x, u.y, u.x + dx, u.y + dy);
+                    if (dist <= v) {
+                        var tile = getTile(u.x + dx, u.y + dy);
+                        tile.fog[u.team] = FOG_VISIBLE;
+                        tile.remembered[u.team] = tile.team;
+                    }
+                }
+            }
+        }
+    }
+}
+
 function draw() {
     var ctx = bufferCtx;
 
     ctx.save();
     ctx.scale(PIXEL_DENSITY, PIXEL_DENSITY);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawOcean(ctx);
     drawLand(ctx);
     drawCulture(ctx);
@@ -324,16 +374,15 @@ function draw() {
 }
 
 function drawOcean(ctx) {
-    ctx.fillStyle = COLORS[0][0];
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawTileEngine(ctx, STAGE_OCEAN);
 }
 
 function drawLand(ctx) {
-    drawTileEngine(ctx, 0);
+    drawTileEngine(ctx, STAGE_LAND);
 }
 
 function drawCulture(ctx) {
-    drawTileEngine(ctx, 1);
+    drawTileEngine(ctx, STAGE_CULTURE);
 }
 
 function drawPath(ctx) {
@@ -378,7 +427,7 @@ function drawPath(ctx) {
 }
 
 function drawUnits(ctx) {
-    drawTileEngine(ctx, 2);
+    drawTileEngine(ctx, STAGE_UNITS);
 }
 
 function drawTileEngine(ctx, stage) {
@@ -393,15 +442,37 @@ function drawTileEngine(ctx, stage) {
 
     for (var y = startY; y < endY; y++) {
         for (var x = startX; x < endX; x++) {
+            var tile = getTile(x, y);
+            if (tile.fog[0] === FOG_BLACK) {
+                continue;
+            }
+
             var tx = tileWidth * x - scrollCenter.x * zoomFactor + 0.5 * viewportWidth;
             var ty = tileHeight * y - scrollCenter.y * zoomFactor + 0.5 * viewportHeight;
-
             if (y % 2 === 1) {
                 tx += tileWidth / 2;
             }
 
-            var tile = getTile(x, y);
-            if (tile.type !== TILE_WATER && ((stage === 0 && tile.team === -1) || (stage === 1 && tile.team >= 0))) {
+            if (stage === STAGE_OCEAN && tile.type === TILE_WATER) {
+                // Draw ocean
+                createHexPath(ctx, tx, ty, tileWidth, tileHeight);
+                ctx.fillStyle = COLORS[0][0];
+                ctx.fill();
+                ctx.strokeStyle = COLORS[0][0];
+                ctx.stroke();
+            }
+
+            if (stage === STAGE_LAND && tile.type === TILE_LAND && tile.team === -1) {
+                // Draw empty land
+                createHexPath(ctx, tx, ty, tileWidth, tileHeight);
+                ctx.fillStyle = COLORS[1][0];
+                ctx.fill();
+                ctx.strokeStyle = COLORS[1][1];
+                ctx.stroke();
+            }
+
+            if (stage === STAGE_CULTURE && tile.type === TILE_LAND && tile.team >= 0) {
+                // Draw culture
                 createHexPath(ctx, tx, ty, tileWidth, tileHeight);
                 ctx.fillStyle = COLORS[tile.team + 2][0];
                 ctx.fill();
@@ -410,7 +481,7 @@ function drawTileEngine(ctx, stage) {
             }
 
             var unit = getUnit(x, y);
-            if (stage === 2 && unit) {
+            if (stage === STAGE_UNITS && unit) {
                 drawUnit(ctx, unit, tx, ty);
             }
         }
@@ -866,6 +937,7 @@ function moveUnit(unit, goalX, goalY) {
         }
     }
 
+    updateFog();
     return true;
 }
 
@@ -921,6 +993,7 @@ function destroyUnit(unit) {
     }
     if (unit.type === UNIT_TYPE_CITY) {
         updateCulture();
+        updateFog();
     }
 }
 
@@ -948,6 +1021,7 @@ function buildCity(unit) {
     unit.destX = unit.x;
     unit.destY = unit.y;
     updateCulture();
+    updateFog();
     return true;
 }
 
@@ -996,6 +1070,7 @@ function endTurn() {
     }
 
     updateCulture();
+    updateFog();
     turn++;
 }
 
