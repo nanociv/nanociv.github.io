@@ -212,15 +212,15 @@ function createMap() {
 
     // Identify the cities by choosing candidates that are
     // as far apart as possible.
-    var cities = [];
-    cities.push(candidates.shift());
-    while (cities.length < MAX_PLAYERS) {
+    var startingPoints = [];
+    startingPoints.push(candidates.shift());
+    while (startingPoints.length < MAX_PLAYERS) {
         var maxDist = 0;
         var maxIndex = 0;
         for (var i = 0; i < candidates.length; i++) {
             var minDist = MAP_WIDTH * MAP_HEIGHT;
-            for (var j = 0; j < cities.length; j++) {
-                var dist = tileDist(cities[j].x, cities[j].y, candidates[i].x, candidates[i].y);
+            for (var j = 0; j < startingPoints.length; j++) {
+                var dist = tileDist(startingPoints[j].x, startingPoints[j].y, candidates[i].x, candidates[i].y);
                 minDist = Math.min(minDist, dist);
             }
             if (minDist > maxDist) {
@@ -229,45 +229,16 @@ function createMap() {
             }
         }
 
-        cities.push(candidates.splice(maxIndex, 1)[0]);
+        startingPoints.push(candidates.splice(maxIndex, 1)[0]);
     }
 
     // Convert the city tiles into units.
     // Each civ gets a city, a settler, and a warrior.
     units = [];
-    for (var i = 0; i < cities.length; i++) {
-        var cityTile = cities[i];
-        var cityUnit = {'type': UNIT_TYPE_CITY, 'team': i, 'x': cityTile.x, 'y': cityTile.y};
-        var settlerUnit = null;
-        var warriorUnit = null;
-        for (var dy = -1; dy <= 1; dy++) {
-            for (var dx = -1; dx <= 1; dx++) {
-                var dist = tileDist(cityTile.x, cityTile.y, cityTile.x + dx, cityTile.y + dy);
-                if (dist <= 1.0) {
-                    var tile = getTile(cityTile.x + dx, cityTile.y + dy);
-                    if ((dx !== 0 || dy !== 0) && tile.type === TILE_LAND && tile.unit === null) {
-                        if (settlerUnit === null) {
-                            settlerUnit = {'type': UNIT_TYPE_SETTLER, 'team': i, 'x': tile.x, 'y': tile.y};
-                        } else if (warriorUnit === null) {
-                            warriorUnit = {'type': UNIT_TYPE_WARRIOR, 'team': i, 'x': tile.x, 'y': tile.y};
-                        }
-                    }
-                }
-            }
-        }
-
-        units.push(cityUnit);
-        units.push(settlerUnit);
-        units.push(warriorUnit);
-    }
-
-    for (var i = 0; i < units.length; i++) {
-        var unit = units[i];
-        unit.level = 1;
-        unit.health = 1;
-        unit.order = ORDER_NONE;
-        unit.moved = false;
-        map[unit.y][unit.x]['unit'] = unit;
+    for (var i = 0; i < startingPoints.length; i++) {
+        startingPoints[i].team = i;
+        buildUnit(startingPoints[i], UNIT_TYPE_SETTLER);
+        buildUnit(startingPoints[i], UNIT_TYPE_WARRIOR);
     }
 
     scrollCenter.x = units[0].x * DEFAULT_TILE_WIDTH;
@@ -768,6 +739,20 @@ function handleButtonAction(action) {
         }
         break;
 
+    case CP_ACTION_SETTLER:
+        if (buildUnit(selectedUnit, UNIT_TYPE_SETTLER)) {
+            selectedUnit = null;
+            cpState = CP_STATE_NONE;
+        }
+        break;
+
+    case CP_ACTION_WARRIOR:
+        if (buildUnit(selectedUnit, UNIT_TYPE_WARRIOR)) {
+            selectedUnit = null;
+            cpState = CP_STATE_NONE;
+        }
+        break;
+
     case CP_ACTION_CANCEL:
         selectUnit(selectedUnit);
         break;
@@ -964,6 +949,36 @@ function buildCity(unit) {
     unit.destY = unit.y;
     updateCulture();
     return true;
+}
+
+function buildUnit(city, unitType) {
+    var unit = null;
+    for (var d = 0; d < MAP_WIDTH && unit === null; d++) {
+        for (var dy = -d; dy <= d && unit === null; dy++) {
+            for (var dx = -d; dx <= d && unit === null; dx++) {
+                var dist = tileDist(city.x, city.y, city.x + dx, city.y + dy);
+                if (dist <= d) {
+                    var tile = getTile(city.x + dx, city.y + dy);
+                    if (tile.type === TILE_LAND && tile.unit === null) {
+                        unit = {
+                                'type': unitType,
+                                'team': city.team,
+                                'x': tile.x,
+                                'y': tile.y,
+                                'level': 1,
+                                'health': 1,
+                                'order': ORDER_NONE,
+                                'moved': false
+                            };
+                        units.push(unit);
+                        tile.unit = unit;
+                        return unit;
+                    }
+                }
+            }
+        }
+    }
+    return null;
 }
 
 function endTurn() {
