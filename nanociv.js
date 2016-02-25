@@ -78,13 +78,13 @@ var CP_BUTTONS = [
 ];
 
 var COLORS = [
-    ['#ccedff', '', ''], // water
-    ['#EFEBE9', '#D7CCC8', '#D7CCC8'], // land
-    ['#BBDEFB', '#90CAF9', '#1976D2'], // blue
-    ['#FFCDD2', '#EF9A9A', '#D32F2F'], // red
-    ['#C8E6C9', '#A5D6A7', '#388E3C'], // green
-    ['#FFE0B2', '#FFCC80', '#F57C00'], // orange
-    ['#E1BEE7', '#CE93D8', '#7B1FA2'], // purple
+    ['#ccedff', ''], // water
+    ['#EFEBE9', '#D7CCC8'], // land
+    ['#BBDEFB', '#1976D2'], // blue
+    ['#FFCDD2', '#D32F2F'], // red
+    ['#C8E6C9', '#388E3C'], // green
+    ['#FFE0B2', '#F57C00'], // orange
+    ['#E1BEE7', '#7B1FA2'], // purple
 ];
 
 var UNIT_NAMES = [
@@ -434,7 +434,7 @@ function drawTileEngine(ctx, stage) {
                 createHexPath(ctx, tx, ty, tileWidth, tileHeight);
                 ctx.fillStyle = COLORS[tile.team + 2][0];
                 ctx.fill();
-                ctx.strokeStyle = COLORS[tile.team + 2][2];
+                ctx.strokeStyle = COLORS[tile.team + 2][1];
                 ctx.stroke();
             }
 
@@ -480,7 +480,7 @@ function drawUnit(ctx, unit, tx, ty, noHighlight) {
         drawHighlight(ctx, tx, ty);
     }
 
-    ctx.fillStyle = COLORS[2 + unit.team][2];
+    ctx.fillStyle = COLORS[2 + unit.team][1];
 
     if (unit.type === UNIT_TYPE_CITY) {
         drawCity(ctx, tx, ty);
