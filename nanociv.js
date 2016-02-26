@@ -14,8 +14,10 @@ var MAX_HEIGHT = 2048;
 var MAP_WIDTH = 80;
 var MAP_HEIGHT = 50;
 
-var DEFAULT_TILE_WIDTH = 20.0;
-var DEFAULT_TILE_HEIGHT = 0.866 * DEFAULT_TILE_WIDTH;
+var COS_30 = 0.866025;
+
+var DEFAULT_TILE_WIDTH = 10.0;
+var DEFAULT_TILE_HEIGHT = COS_30 * DEFAULT_TILE_WIDTH;
 
 var STAGE_OCEAN = 0;
 var STAGE_LAND = 1;
@@ -25,6 +27,10 @@ var STAGE_UNITS = 3;
 var TILE_WATER = 0;
 var TILE_LAND = 1;
 var MAX_PLAYERS = 5;
+
+var INITIAL_ZOOM = 5.0;
+var MIN_ZOOM = 1.0;
+var MAX_ZOOM = 10.0;
 
 var UNIT_TYPE_CITY = 0;
 var UNIT_TYPE_SETTLER = 1;
@@ -52,6 +58,7 @@ var CP_ACTION_ATTACK = 5;
 var CP_ACTION_CANCEL = 6;
 var CP_ACTION_NEXT = 7;
 var CP_ACTION_END = 8;
+var CP_ACTION_EXPLORE = 9;
 
 var ORDER_NONE = 0;
 var ORDER_DEFEND = 1;
@@ -74,14 +81,15 @@ var BUTTON_TEXT = [
     'Attack',
     'Cancel',
     'Next Unit',
-    'End Turn'
+    'End Turn',
+    'Explore'
 ];
 
 var CP_BUTTONS = [
     /* CP_STATE_NONE */    [CP_ACTION_NEXT, CP_ACTION_END],
     /* CP_STATE_CITY */    [CP_ACTION_SETTLER, CP_ACTION_WARRIOR, CP_ACTION_DEFEND],
-    /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_DEFEND],
-    /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_DEFEND],
+    /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_EXPLORE, CP_ACTION_DEFEND],
+    /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_EXPLORE, CP_ACTION_DEFEND],
     /* CP_STATE_MOVE */    [CP_ACTION_CANCEL],
     /* CP_STATE_ATTACK */  [CP_ACTION_CANCEL]
 ];
@@ -114,7 +122,7 @@ var startTime = getTime();
 var dragging = false;
 var click = {x: 0, y: 0};
 var mouseDownTime = 0;
-var zoomFactor = 2.0;
+var zoomFactor = INITIAL_ZOOM;
 var tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
 var tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
 var scrollCenter = {x: 0, y: 0};
@@ -341,7 +349,7 @@ function updateFog() {
         var u = units[i];
         var v = u.type === UNIT_TYPE_CITY ? 2 : 1;
         for (var dy = -v; dy <= v; dy++) {
-            if (u.x + dy >= 0 && u.y < MAP_HEIGHT) {
+            if (u.y + dy >= 0 && u.y < MAP_HEIGHT) {
                 for (var dx = -v; dx <= v; dx++) {
                     var dist = tileDist(u.x, u.y, u.x + dx, u.y + dy);
                     if (dist <= v) {
@@ -396,7 +404,7 @@ function drawPath(ctx) {
     }
 
     var start = getTile(selectedUnit.x, selectedUnit.y);
-    var path = findPath(start, goal);
+    var path = findPath(selectedUnit, start, goal);
     if (!path) {
         return;
     }
@@ -565,8 +573,8 @@ function drawSettler(ctx, tx, ty) {
     var radius = 0.325 * tileWidth;
     ctx.beginPath();
     ctx.moveTo(centerX, centerY - radius);
-    ctx.lineTo(centerX + 0.866 * radius, centerY + 0.5 * radius);
-    ctx.lineTo(centerX - 0.866 * radius, centerY + 0.5 * radius);
+    ctx.lineTo(centerX + COS_30 * radius, centerY + 0.5 * radius);
+    ctx.lineTo(centerX - COS_30 * radius, centerY + 0.5 * radius);
     ctx.closePath();
     ctx.fill();
 }
@@ -710,7 +718,7 @@ function tileDist(x1, y1, x2, y2) {
         dx -= MAP_WIDTH;
     }
 
-    var dy = 0.866 * (y2 - y1);
+    var dy = COS_30 * (y2 - y1);
     return Math.sqrt(dx * dx + dy * dy);
 }
 
@@ -824,6 +832,13 @@ function handleButtonAction(action) {
         }
         break;
 
+    case CP_ACTION_EXPLORE:
+        selectedUnit.order = ORDER_EXPLORE;
+        explore(selectedUnit);
+        selectedUnit = null;
+        cpState = CP_STATE_NONE;
+        break;
+
     case CP_ACTION_CANCEL:
         selectUnit(selectedUnit);
         break;
@@ -848,6 +863,7 @@ function handleMapClick() {
         var newX = getTileX(click.x, click.y);
         var newY = getTileY(click.x, click.y);
         if (moveUnit(selectedUnit, newX, newY)) {
+            selectedUnit.order = ORDER_MOVE;
             selectedUnit = null;
             cpState = CP_STATE_NONE;
         }
@@ -912,13 +928,11 @@ function moveUnit(unit, goalX, goalY) {
         return false;
     }
 
-    var path = findPath(start, goal);
+    var path = findPath(unit, start, goal);
     if (!path) {
         // No path to the goal
         return false;
     }
-
-    unit.order = ORDER_MOVE;
 
     if (!unit.moved) {
         // If the unit has not moved yet,
@@ -932,7 +946,7 @@ function moveUnit(unit, goalX, goalY) {
         unit.destY = goalY;
         unit.moved = true;
 
-        if (unit.x === unit.destX && unit.y === unit.destY) {
+        if (unit.order === ORDER_MOVE && unit.x === unit.destX && unit.y === unit.destY) {
             unit.order = ORDER_NONE;
         }
     }
@@ -983,6 +997,18 @@ function gaussian() {
         sum += Math.random();
     }
     return sum / 6.0 - 0.5;
+}
+
+function explore(unit) {
+    var start = getTile(unit.x, unit.y);
+    if (!start) {
+        return;
+    }
+    var path = findUnexplored(unit, start);
+    if (!path) {
+        return;
+    }
+    moveUnit(unit, path[0].x, path[0].y);
 }
 
 function destroyUnit(unit) {
@@ -1061,6 +1087,10 @@ function endTurn() {
             moveUnit(units[i], units[i].destX, units[i].destY);
         }
 
+        if (units[i].order === ORDER_EXPLORE) {
+            explore(units[i]);
+        }
+
         if (units[i].type === UNIT_TYPE_CITY && units[i].level < 16) {
             units[i].level++;
             units[i].health++;
@@ -1075,7 +1105,7 @@ function endTurn() {
 }
 
 function zoom(factor) {
-    zoomFactor = Math.max(1.0, Math.min(4.0, zoomFactor * factor));
+    zoomFactor = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomFactor * factor));
     tileWidth = zoomFactor * DEFAULT_TILE_WIDTH;
     tileHeight = zoomFactor * DEFAULT_TILE_HEIGHT;
     dirty = true;
@@ -1130,7 +1160,15 @@ function getTime() {
     return (new Date()).getTime();
 }
 
-function findPath(start, goal) {
+function findPath(unit, start, goal) {
+    return dijkstraSearch(unit, start, function(u) { return u === goal; });
+}
+
+function findUnexplored(unit, start) {
+    return dijkstraSearch(unit, start, function(u) { return u.fog[unit.team] === FOG_BLACK; });
+}
+
+function dijkstraSearch(unit, start, goalFn) {
     for (var y = 0; y < MAP_HEIGHT; y++) {
         for (var x = 0; x < MAP_WIDTH; x++) {
             map[y][x].dist = Number.MAX_VALUE;
@@ -1153,7 +1191,7 @@ function findPath(start, goal) {
             }
         }
 
-        if (u === goal) {
+        if (goalFn(u)) {
             var path = [];
             while (u.prev !== null) {
                 path.push(u);
@@ -1172,7 +1210,7 @@ function findPath(start, goal) {
                     var dist = tileDist(u.x, u.y, u.x + dx, u.y + dy);
                     if (dist <= 1.0) {
                         var v = getTile(u.x + dx, u.y + dy);
-                        if (v.type === TILE_LAND && v.unit === null && v.dist > u.dist + 1) {
+                        if ((v.fog[unit.team] === FOG_BLACK || v.type === TILE_LAND) && v.unit === null && v.dist > u.dist + 1) {
                             v.dist = u.dist + 1;
                             v.prev = u;
                             q.push(v);
