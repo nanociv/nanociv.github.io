@@ -95,13 +95,13 @@ var CP_BUTTONS = [
 ];
 
 var COLORS = [
-    ['#ccedff', ''], // water
-    ['#EFEBE9', '#D7CCC8'], // land
-    ['#FFE0B2', '#F57C00'], // orange
-    ['#BBDEFB', '#1976D2'], // blue
-    ['#FFCDD2', '#D32F2F'], // red
-    ['#C8E6C9', '#388E3C'], // green
-    ['#E1BEE7', '#7B1FA2'], // purple
+    ['#ccedff', '#ccedff', '#55636b', '#55636b'], // water
+    ['#EFEBE9', '#D7CCC8', '#646262', '#5a5553'], // land
+    ['#FFE0B2', '#F57C00', '#6b5d4a', '#673400'], // orange
+    ['#BBDEFB', '#1976D2', '#4e5d69', '#0b3158'], // blue
+    ['#FFCDD2', '#D32F2F', '#6b5658', '#581414'], // red
+    ['#C8E6C9', '#388E3C', '#536054', '#173b19'], // green
+    ['#E1BEE7', '#7B1FA2', '#5e4f61', '#340d44'], // purple
 ];
 
 var UNIT_NAMES = [
@@ -463,28 +463,45 @@ function drawTileEngine(ctx, stage) {
 
             if (stage === STAGE_OCEAN && tile.type === TILE_WATER) {
                 // Draw ocean
+                if (tile.fog[0] === FOG_VISIBLE) {
+                    // Active colors
+                    ctx.fillStyle = COLORS[0][0];
+                    ctx.strokeStyle = COLORS[0][1];
+                } else {
+                    // Fog of war colors
+                    ctx.fillStyle = COLORS[0][2];
+                    ctx.strokeStyle = COLORS[0][3];
+                }
                 createHexPath(ctx, tx, ty, tileWidth, tileHeight);
-                ctx.fillStyle = COLORS[0][0];
                 ctx.fill();
-                ctx.strokeStyle = COLORS[0][0];
                 ctx.stroke();
             }
 
             if (stage === STAGE_LAND && tile.type === TILE_LAND && tile.team === -1) {
                 // Draw empty land
+                if (tile.fog[0] === FOG_VISIBLE) {
+                    ctx.fillStyle = COLORS[1][0];
+                    ctx.strokeStyle = COLORS[1][1];
+                } else {
+                    ctx.fillStyle = COLORS[1][2];
+                    ctx.strokeStyle = COLORS[1][3];
+                }
                 createHexPath(ctx, tx, ty, tileWidth, tileHeight);
-                ctx.fillStyle = COLORS[1][0];
                 ctx.fill();
-                ctx.strokeStyle = COLORS[1][1];
                 ctx.stroke();
             }
 
             if (stage === STAGE_CULTURE && tile.type === TILE_LAND && tile.team >= 0) {
                 // Draw culture
+                if (tile.fog[0] === FOG_VISIBLE) {
+                    ctx.fillStyle = COLORS[tile.team + 2][0];
+                    ctx.strokeStyle = COLORS[tile.team + 2][1];
+                } else {
+                    ctx.fillStyle = COLORS[tile.team + 2][2];
+                    ctx.strokeStyle = COLORS[tile.team + 2][3];
+                }
                 createHexPath(ctx, tx, ty, tileWidth, tileHeight);
-                ctx.fillStyle = COLORS[tile.team + 2][0];
                 ctx.fill();
-                ctx.strokeStyle = COLORS[tile.team + 2][1];
                 ctx.stroke();
             }
 
