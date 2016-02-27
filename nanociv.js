@@ -36,10 +36,11 @@ var UNIT_TYPE_CITY = 0;
 var UNIT_TYPE_SETTLER = 1;
 var UNIT_TYPE_WARRIOR = 2;
 
-var CONTROL_PANEL_HEIGHT = 100;
-var BUTTON_Y = 45;
-var BUTTON_WIDTH = 80;
-var BUTTON_HEIGHT = 35;
+var CONTROL_PANEL_HEIGHT = 80;
+var BUTTON_X = 10;
+var BUTTON_Y = 40;
+var BUTTON_WIDTH = 60;
+var BUTTON_HEIGHT = 25;
 var BUTTON_PADDING = 10;
 
 var CP_STATE_NONE = 0;
@@ -59,6 +60,7 @@ var CP_ACTION_CANCEL = 6;
 var CP_ACTION_NEXT = 7;
 var CP_ACTION_END = 8;
 var CP_ACTION_EXPLORE = 9;
+var CP_ACTION_AUTO = 10;
 
 var ORDER_NONE = 0;
 var ORDER_DEFEND = 1;
@@ -67,6 +69,7 @@ var ORDER_BUILD_WARRIOR = 3;
 var ORDER_MOVE = 4;
 var ORDER_ATTACK = 5;
 var ORDER_EXPLORE = 6;
+var ORDER_AUTO = 7;
 
 var FOG_BLACK = 0;
 var FOG_REMEMBERED = 1;
@@ -82,14 +85,15 @@ var BUTTON_TEXT = [
     'Cancel',
     'Next Unit',
     'End Turn',
-    'Explore'
+    'Explore',
+    'Auto'
 ];
 
 var CP_BUTTONS = [
     /* CP_STATE_NONE */    [CP_ACTION_NEXT, CP_ACTION_END],
-    /* CP_STATE_CITY */    [CP_ACTION_SETTLER, CP_ACTION_WARRIOR, CP_ACTION_DEFEND],
-    /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_EXPLORE, CP_ACTION_DEFEND],
-    /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_EXPLORE, CP_ACTION_DEFEND],
+    /* CP_STATE_CITY */    [CP_ACTION_SETTLER, CP_ACTION_WARRIOR, CP_ACTION_DEFEND, CP_ACTION_AUTO],
+    /* CP_STATE_SETTLER */ [CP_ACTION_MOVE, CP_ACTION_BUILD, CP_ACTION_EXPLORE, CP_ACTION_DEFEND, CP_ACTION_AUTO],
+    /* CP_STATE_WARRIOR */ [CP_ACTION_MOVE, CP_ACTION_ATTACK, CP_ACTION_EXPLORE, CP_ACTION_DEFEND, CP_ACTION_AUTO],
     /* CP_STATE_MOVE */    [CP_ACTION_CANCEL],
     /* CP_STATE_ATTACK */  [CP_ACTION_CANCEL]
 ];
@@ -187,10 +191,10 @@ function createMap() {
 
     // Create continents / islands of land tiles
     var landTiles = [];
-    for (var i = 0; i < 20; i++) {
-        var centerX = Math.round(Math.random() * MAP_WIDTH);
-        var centerY = Math.round((0.2 + Math.random() * 0.6) * MAP_HEIGHT);
-        var size = Math.ceil(1 + Math.random() * 8);
+    for (var i = 0; i < 40; i++) {
+        var centerX = Math.round((0.25 + Math.random() * 0.5) * MAP_WIDTH);
+        var centerY = Math.round((0.25 + Math.random() * 0.5) * MAP_HEIGHT);
+        var size = Math.ceil(1 + Math.random() * 6);
         for (var dy = -size; dy <= size; dy++) {
             for (var dx = -size; dx <= size; dx++) {
                 var x = centerX + dx;
@@ -268,6 +272,13 @@ function createMap() {
 
     scrollCenter.x = units[0].x * DEFAULT_TILE_WIDTH;
     scrollCenter.y = units[0].y * DEFAULT_TILE_HEIGHT;
+
+    // All AI units are on Auto
+    for (var i = 0; i < units.length; i++) {
+        if (units[i].team !== 0) {
+            units[i].order = ORDER_AUTO;
+        }
+    }
 }
 
 function resize() {
@@ -505,9 +516,11 @@ function drawTileEngine(ctx, stage) {
                 ctx.stroke();
             }
 
-            var unit = getUnit(x, y);
-            if (stage === STAGE_UNITS && unit) {
-                drawUnit(ctx, unit, tx, ty);
+            if (stage === STAGE_UNITS && tile.fog[0] === FOG_VISIBLE) {
+                var unit = getUnit(x, y);
+                if (unit) {
+                    drawUnit(ctx, unit, tx, ty);
+                }
             }
         }
     }
@@ -608,7 +621,7 @@ function drawWarrior(ctx, tx, ty) {
 }
 
 function drawControlPanel(ctx) {
-    var x = 20;
+    var x = BUTTON_X;
     var y = viewportHeight - CONTROL_PANEL_HEIGHT;
 
     if (selectedUnit) {
@@ -618,19 +631,19 @@ function drawControlPanel(ctx) {
                 UNIT_NAMES[selectedUnit.type] +
                 ', Strength ' + selectedUnit.health + ' (' + health.toFixed(1) + '%)';
 
-        ctx.font = '16px Arial';
+        ctx.font = '14px Arial';
         ctx.textAlign = 'left';
         drawText(ctx, str, x, y + 30, '#fff');
     }
 
     var buttons = CP_BUTTONS[cpState];
-    var buttonX = x;
+    var buttonX = BUTTON_X;
     var buttonY = BUTTON_Y + y;
     for (var i = 0; i < buttons.length; i++) {
         ctx.fillStyle = '#8ce';
         ctx.fillRect(buttonX, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT);
         ctx.fillStyle = '#444';
-        ctx.font = '14px Arial';
+        ctx.font = '10px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(BUTTON_TEXT[buttons[i]], buttonX + 0.5 * BUTTON_WIDTH, buttonY + 0.6 * BUTTON_HEIGHT);
         buttonX += BUTTON_WIDTH + BUTTON_PADDING;
@@ -804,10 +817,9 @@ function handleMouseUp(e) {
 }
 
 function handleControlPanelClick() {
-    var x = 20;
     var y = viewportHeight - CONTROL_PANEL_HEIGHT;
     var buttons = CP_BUTTONS[cpState];
-    var buttonX = x;
+    var buttonX = BUTTON_X;
     var buttonY = BUTTON_Y + y;
     for (var i = 0; i < buttons.length; i++) {
         if (click.x >= buttonX && click.x <= buttonX + BUTTON_WIDTH &&
@@ -852,6 +864,13 @@ function handleButtonAction(action) {
     case CP_ACTION_EXPLORE:
         selectedUnit.order = ORDER_EXPLORE;
         explore(selectedUnit);
+        selectedUnit = null;
+        cpState = CP_STATE_NONE;
+        break;
+
+    case CP_ACTION_AUTO:
+        selectedUnit.order = ORDER_AUTO;
+        doAi(selectedUnit);
         selectedUnit = null;
         cpState = CP_STATE_NONE;
         break;
@@ -1016,6 +1035,10 @@ function gaussian() {
     return sum / 6.0 - 0.5;
 }
 
+function canExplore(unit) {
+    return unit.type !== UNIT_TYPE_CITY;
+}
+
 function explore(unit) {
     var start = getTile(unit.x, unit.y);
     if (!start) {
@@ -1026,6 +1049,20 @@ function explore(unit) {
         return;
     }
     moveUnit(unit, path[0].x, path[0].y);
+}
+
+function doAi(unit) {
+    if (canBuildCity(unit)) {
+        buildCity(unit);
+        return;
+    }
+
+    if (canExplore(unit)) {
+        explore(unit);
+        return;
+    }
+
+    // TODO
 }
 
 function destroyUnit(unit) {
@@ -1040,7 +1077,12 @@ function destroyUnit(unit) {
     }
 }
 
-function buildCity(unit) {
+function canBuildCity(unit) {
+    if (!unit || unit.type !== UNIT_TYPE_SETTLER) {
+        // Not a city
+        return false;
+    }
+
     var tile = getTile(unit.x, unit.y);
     if (!tile) {
         // Unit out of bounds.
@@ -1054,6 +1096,14 @@ function buildCity(unit) {
 
     if (!(tile.team === -1 || tile.team === unit.team)) {
         // Tile is owned by a different team.
+        return false;
+    }
+
+    return true;
+}
+
+function buildCity(unit) {
+    if (!canBuildCity(unit)) {
         return false;
     }
 
@@ -1108,7 +1158,11 @@ function endTurn() {
             explore(units[i]);
         }
 
-        if (units[i].type === UNIT_TYPE_CITY && units[i].level < 16) {
+        if (units[i].order === ORDER_AUTO) {
+            doAi(units[i]);
+        }
+
+        if (units[i].type === UNIT_TYPE_CITY && units[i].level < 8) {
             units[i].level++;
             units[i].health++;
         }
